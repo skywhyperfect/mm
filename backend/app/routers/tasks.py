@@ -179,6 +179,75 @@ async def rag_consult(data: RAGQuestion):
     }
 
 
+# ─── AI Team Builder ────────────────────────────────────────────────
+
+@router.post("/{task_id}/build-team")
+async def build_team(task_id: str):
+    """AI Team Builder: собирает идеальную команду под задачу из доступных волонтёров"""
+    
+    # Получаем задачу
+    task_res = supabase.table("tasks").select("*").eq("id", task_id).single().execute()
+    if not task_res.data:
+        raise HTTPException(status_code=404, detail="Задача не найдена")
+    task = task_res.data
+    needed = task.get("volunteers_needed", 1)
+    
+    # Получаем всех доступных волонтёров
+    vols_res = supabase.table("users").select("id, name, skills, bio, goals").eq("role", "volunteer").execute()
+    candidates = vols_res.data or []
+    
+    if len(candidates) < needed:
+        raise HTTPException(status_code=400, detail="Недостаточно волонтёров на платформе для сбора команды")
+
+    # Готовим список для промпта
+    candidates_info = ""
+    for v in candidates:
+        candidates_info += f"- ID: {v['id']}, Имя: {v['name']}, Навыки: {', '.join(v.get('skills', []))}, Опыт: {v.get('bio', '')}\n"
+
+    # Формируем ИИ промпт
+    prompt = f"""Ты — AI-рекрутер, собирающий `Team Builder` для платформы Sun Proactive.
+
+Задача: "{task['title']}"
+Описание: {task['description']}
+Нужно человек: {needed}
+Необходимые навыки: {', '.join(task.get('hard_skills', []) + task.get('soft_skills', []))}
+
+Доступные кандидаты:
+{candidates_info}
+
+ВЫБЕРИ ровно {needed} лучших кандидатов и распредели между ними роли (например: Лидер команды, Главный исполнитель, Новичок/Помощник). Учитывай, что сбалансированная команда с начинающими и опытными волонтёрами часто эффективнее.
+
+Твой ответ должен быть СТРОГО в формате JSON без markdown разметки:
+{{
+  "team": [
+    {{
+      "user_id": "<ID кандидата>",
+      "role": "<описание роли>",
+      "reason": "<почему он подходит (1 предложение)>"
+    }}
+  ],
+  "overall_strategy": "<общее объяснение, почему ты собрал именно такую команду>"
+}}"""
+
+    ai_response = await chat([{"role": "user", "content": prompt}])
+    
+    try:
+        json_start = ai_response.find("{")
+        json_end = ai_response.rfind("}") + 1
+        team_data = json.loads(ai_response[json_start:json_end])
+        
+        # Подтягиваем полную инфу о выбранных людях
+        for member in team_data.get("team", []):
+            u_info = next((c for c in candidates if str(c["id"]) == str(member["user_id"])), None)
+            if u_info:
+                member["name"] = u_info["name"]
+                
+        return team_data
+    except Exception as e:
+        print(f"Ошибка Team Builder: {e}\nОтвет: {ai_response}")
+        raise HTTPException(status_code=500, detail="AI не смог собрать команду, попробуйте еще раз.")
+
+
 # ─── CRUD задач ────────────────────────────────────────────────────
 
 @router.get("/")

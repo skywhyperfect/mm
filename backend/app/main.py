@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.routers import tasks, users, matching, verification, notifications
+from app.routers import tasks, users, matching, verification, notifications, reputation
 
 app = FastAPI(title="Sun Proactive API", version="1.0.0")
 
@@ -17,6 +17,7 @@ app.include_router(tasks.router, prefix="/api/tasks", tags=["tasks"])
 app.include_router(matching.router, prefix="/api/matching", tags=["matching"])
 app.include_router(verification.router, prefix="/api/verification", tags=["verification"])
 app.include_router(notifications.router, prefix="/api/notifications", tags=["notifications"])
+app.include_router(reputation.router, prefix="/api/reputation", tags=["reputation"])
 
 @app.get("/")
 async def root():
